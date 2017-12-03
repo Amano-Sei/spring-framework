@@ -71,7 +71,7 @@ public class HttpWebHandlerAdapter extends WebHandlerDecorator implements HttpHa
 	 * <p>TODO:
 	 * This definition is currently duplicated between HttpWebHandlerAdapter
 	 * and AbstractSockJsSession. It is a candidate for a common utility class.
-	 * @see #indicatesDisconnectedClient(Throwable)
+	 * @see #isDisconnectedClientError(Throwable)
 	 */
 	private static final Set<String> DISCONNECTED_CLIENT_EXCEPTIONS =
 			new HashSet<>(Arrays.asList("ClientAbortException", "EOFException", "EofException"));
@@ -129,7 +129,8 @@ public class HttpWebHandlerAdapter extends WebHandlerDecorator implements HttpHa
 	/**
 	 * Configure a custom {@link LocaleContextResolver}. The provided instance is set on
 	 * each created {@link DefaultServerWebExchange}.
-	 * <p>By default this is set to {@link org.springframework.web.server.i18n.AcceptHeaderLocaleContextResolver}.
+	 * <p>By default this is set to
+	 * {@link org.springframework.web.server.i18n.AcceptHeaderLocaleContextResolver}.
 	 * @param localeContextResolver the locale context resolver to use
 	 */
 	public void setLocaleContextResolver(LocaleContextResolver localeContextResolver) {
@@ -147,7 +148,8 @@ public class HttpWebHandlerAdapter extends WebHandlerDecorator implements HttpHa
 	 * Return the configured {@link LocaleContextResolver}.
 	 */
 	public LocaleContextResolver getLocaleContextResolver() {
-		return (this.localeContextResolver != null ? this.localeContextResolver : new AcceptHeaderLocaleContextResolver());
+		return (this.localeContextResolver != null ?
+				this.localeContextResolver : new AcceptHeaderLocaleContextResolver());
 	}
 
 
@@ -156,19 +158,20 @@ public class HttpWebHandlerAdapter extends WebHandlerDecorator implements HttpHa
 		ServerWebExchange exchange = createExchange(request, response);
 		return getDelegate().handle(exchange)
 				.onErrorResume(ex -> {
-					response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
-					logHandleFailure(ex);
+					handleFailure(response, ex);
 					return Mono.empty();
 				})
 				.then(Mono.defer(response::setComplete));
 	}
 
 	protected ServerWebExchange createExchange(ServerHttpRequest request, ServerHttpResponse response) {
-		return new DefaultServerWebExchange(request, response, this.sessionManager, getCodecConfigurer(), getLocaleContextResolver());
+		return new DefaultServerWebExchange(request, response, this.sessionManager,
+				getCodecConfigurer(), getLocaleContextResolver());
 	}
 
-	private void logHandleFailure(Throwable ex) {
-		if (indicatesDisconnectedClient(ex)) {
+	private void handleFailure(ServerHttpResponse response, Throwable ex) {
+		boolean statusCodeChanged = response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
+		if (isDisconnectedClientError(ex)) {
 			if (disconnectedClientLogger.isTraceEnabled()) {
 				disconnectedClientLogger.trace("Looks like the client has gone away", ex);
 			}
@@ -178,14 +181,20 @@ public class HttpWebHandlerAdapter extends WebHandlerDecorator implements HttpHa
 						"' to TRACE level.)");
 			}
 		}
+		else if (!statusCodeChanged) {
+			logger.error("Unhandled failure: " + ex.getMessage() + ", " +
+					"response already committed with status=" + response.getStatusCode());
+		}
 		else {
 			logger.error("Failed to handle request", ex);
 		}
 	}
 
-	private boolean indicatesDisconnectedClient(Throwable ex)  {
-		return ("Broken pipe".equalsIgnoreCase(NestedExceptionUtils.getMostSpecificCause(ex).getMessage()) ||
-				DISCONNECTED_CLIENT_EXCEPTIONS.contains(ex.getClass().getSimpleName()));
+	private boolean isDisconnectedClientError(Throwable ex)  {
+		String message = NestedExceptionUtils.getMostSpecificCause(ex).getMessage();
+		message = (message != null ? message.toLowerCase() : "");
+		String className = ex.getClass().getSimpleName();
+		return (message.contains("broken pipe") || DISCONNECTED_CLIENT_EXCEPTIONS.contains(className));
 	}
 
 }

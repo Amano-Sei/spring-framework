@@ -35,24 +35,20 @@ import org.springframework.util.StringUtils;
  *
  * <p>By default a newly created {@code CorsConfiguration} does not permit any
  * cross-origin requests and must be configured explicitly to indicate what
- * should be allowed.
- *
- * <p>Use {@link #applyPermitDefaultValues()} to flip the initialization model
- * to start with open defaults that permit all cross-origin requests for GET,
- * HEAD, and POST requests.
+ * should be allowed. Use {@link #applyPermitDefaultValues()} to flip the
+ * initialization model to start with open defaults that permit all cross-origin
+ * requests for GET, HEAD, and POST requests.
  *
  * @author Sebastien Deleuze
  * @author Rossen Stoyanchev
  * @author Juergen Hoeller
  * @author Sam Brannen
  * @since 4.2
- * @see <a href="http://www.w3.org/TR/cors/">CORS W3C recommendation</a>
+ * @see <a href="http://www.w3.org/TR/cors/">CORS spec</a>
  */
 public class CorsConfiguration {
 
-	/**
-	 * Wildcard representing <em>all</em> origins, methods, or headers.
-	 */
+	/** Wildcard representing <em>all</em> origins, methods, or headers. */
 	public static final String ALL = "*";
 
 	private static final List<HttpMethod> DEFAULT_METHODS;
@@ -278,7 +274,7 @@ public class CorsConfiguration {
 	 * Whether user credentials are supported.
 	 * <p>By default this is not set (i.e. user credentials are not supported).
 	 */
-	public void setAllowCredentials(Boolean allowCredentials) {
+	public void setAllowCredentials(@Nullable Boolean allowCredentials) {
 		this.allowCredentials = allowCredentials;
 	}
 
@@ -296,7 +292,7 @@ public class CorsConfiguration {
 	 * can be cached by clients.
 	 * <p>By default this is not set.
 	 */
-	public void setMaxAge(Long maxAge) {
+	public void setMaxAge(@Nullable Long maxAge) {
 		this.maxAge = maxAge;
 	}
 
@@ -321,10 +317,9 @@ public class CorsConfiguration {
 	 *
 	 * <p>The following defaults are applied if not already set:
 	 * <ul>
-	 *     <li>Allow all origins, i.e. {@code "*"}.</li>
+	 *     <li>Allow all origins.</li>
 	 *     <li>Allow "simple" methods {@code GET}, {@code HEAD} and {@code POST}.</li>
 	 *     <li>Allow all headers.</li>
-	 *     <li>Allow credentials.</li>
 	 *     <li>Set max age to 1800 seconds (30 minutes).</li>
 	 * </ul>
 	 */
@@ -338,9 +333,6 @@ public class CorsConfiguration {
 		}
 		if (this.allowedHeaders == null) {
 			this.addAllowedHeader(ALL);
-		}
-		if (this.allowCredentials == null) {
-			this.setAllowCredentials(true);
 		}
 		if (this.maxAge == null) {
 			this.setMaxAge(1800L);
