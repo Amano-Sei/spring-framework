@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import java.io.OutputStream;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -48,7 +49,9 @@ import org.springframework.util.Assert;
 import org.springframework.util.MimeType;
 
 /**
- * Base class providing support methods for Jackson 2.9 encoding.
+ * Base class providing support methods for Jackson 2.9 encoding. For non-streaming use
+ * cases, {@link Flux} elements are collected into a {@link List} before serialization for
+ * performance reason.
  *
  * @author Sebastien Deleuze
  * @author Arjen Poutsma
@@ -56,7 +59,18 @@ import org.springframework.util.MimeType;
  */
 public abstract class AbstractJackson2Encoder extends Jackson2CodecSupport implements HttpMessageEncoder<Object> {
 
-	protected final List<MediaType> streamingMediaTypes = new ArrayList<>(1);
+	private static final byte[] NEWLINE_SEPARATOR = {'\n'};
+
+	private static final Map<MediaType, byte[]> STREAM_SEPARATORS;
+
+	static {
+		STREAM_SEPARATORS = new HashMap<>();
+		STREAM_SEPARATORS.put(MediaType.APPLICATION_STREAM_JSON, NEWLINE_SEPARATOR);
+		STREAM_SEPARATORS.put(MediaType.parseMediaType("application/stream+x-jackson-smile"), new byte[0]);
+	}
+
+
+	private final List<MediaType> streamingMediaTypes = new ArrayList<>(1);
 
 
 	/**
@@ -99,18 +113,23 @@ public abstract class AbstractJackson2Encoder extends Jackson2CodecSupport imple
 			return Flux.from(inputStream).map(value ->
 					encodeValue(value, mimeType, bufferFactory, elementType, hints));
 		}
-		else if (this.streamingMediaTypes.stream().anyMatch(mediaType -> mediaType.isCompatibleWith(mimeType))) {
-			return Flux.from(inputStream).map(value -> {
-				DataBuffer buffer = encodeValue(value, mimeType, bufferFactory, elementType, hints);
-				buffer.write(new byte[]{'\n'});
-				return buffer;
-			});
+
+		for (MediaType streamingMediaType : this.streamingMediaTypes) {
+			if (streamingMediaType.isCompatibleWith(mimeType)) {
+				byte[] separator = STREAM_SEPARATORS.getOrDefault(streamingMediaType, NEWLINE_SEPARATOR);
+				return Flux.from(inputStream).map(value -> {
+					DataBuffer buffer = encodeValue(value, mimeType, bufferFactory, elementType, hints);
+					if (separator != null) {
+						buffer.write(separator);
+					}
+					return buffer;
+				});
+			}
 		}
-		else {
-			ResolvableType listType = ResolvableType.forClassWithGenerics(List.class, elementType);
-			return Flux.from(inputStream).collectList().map(list ->
-					encodeValue(list, mimeType, bufferFactory, listType, hints)).flux();
-		}
+
+		ResolvableType listType = ResolvableType.forClassWithGenerics(List.class, elementType);
+		return Flux.from(inputStream).collectList().map(list ->
+				encodeValue(list, mimeType, bufferFactory, listType, hints)).flux();
 	}
 
 	private DataBuffer encodeValue(Object value, @Nullable MimeType mimeType, DataBufferFactory bufferFactory,
@@ -155,6 +174,11 @@ public abstract class AbstractJackson2Encoder extends Jackson2CodecSupport imple
 	// HttpMessageEncoder...
 
 	@Override
+	public List<MimeType> getEncodableMimeTypes() {
+		return getMimeTypes();
+	}
+
+	@Override
 	public List<MediaType> getStreamingMediaTypes() {
 		return Collections.unmodifiableList(this.streamingMediaTypes);
 	}
@@ -165,6 +189,8 @@ public abstract class AbstractJackson2Encoder extends Jackson2CodecSupport imple
 
 		return (actualType != null ? getHints(actualType) : Collections.emptyMap());
 	}
+
+	// Jackson2CodecSupport ...
 
 	@Override
 	protected <A extends Annotation> A getAnnotation(MethodParameter parameter, Class<A> annotType) {
